@@ -1,0 +1,30 @@
+# Android and Gradle
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+# Python and local outputs
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+# Device diagnostics / model files / sensitive data
+*.gguf
+*.log
+*.hprof
+*.db
+*.sqlite
+*.sqlite3
+android-logs/
+*.pem
+.env
+.env.*
+!*.env.example
