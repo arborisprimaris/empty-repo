@@ -1,0 +1,133 @@
+name: Import Holographic full source and build APK
+
+on:
+  push:
+    paths:
+      - 'Holographic_Virtual_Life_v0.9.3_Full_Android_Source.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  source-import-and-android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Holographic repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Unpack full Android source safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+          import stat
+
+          package = Path('Holographic_Virtual_Life_v0.9.3_Full_Android_Source.zip')
+          if package.exists():
+              with ZipFile(package) as archive:
+                  entries = archive.infolist()
+                  if len(entries) > 500 or sum(x.file_size for x in entries) > 30000000:
+                      raise SystemExit('Archive exceeds safe file-count or unpacked-size limit')
+                  for entry in entries:
+                      name = entry.filename
+                      path = PurePosixPath(name)
+                      if (path.is_absolute() or '\\' in name or
+                          any(part in ('..', '.git') for part in path.parts)):
+                          raise SystemExit('Unsafe archive entry: ' + name)
+                      if stat.S_ISLNK(entry.external_attr >> 16):
+                          raise SystemExit('Symlinks are not accepted in the release archive')
+                      if entry.is_dir() or not name:
+                          continue
+                      # The dedicated GitHub workflows are managed in this repository.
+                      if name.startswith('.github/workflows/'):
+                          continue
+                      target = Path(*path.parts)
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      target.write_bytes(archive.read(entry))
+              package.unlink()
+              print('Imported', len(entries), 'archive entries')
+          else:
+              print('Already imported, using repository source')
+          PY
+
+      - name: Commit imported source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --staged --quiet; then
+            echo "No new files to commit"
+          else
+            git commit -m "Import Holographic v0.9.3 full Android source and assets"
+            git push origin HEAD:main
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm expected Android source exists
+        shell: bash
+        run: |
+          test -f settings.gradle
+          test -f preview/src/main/AndroidManifest.xml
+          test -f preview/src/main/assets/index.html
+          test -f tests/validate_assets.py
+
+      - name: Execute JavaScript and Python tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/verify-sources.cjs
+          python3 tests/validate_assets.py
+          for t in tests/*.test.cjs; do node "$t"; done
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Install Android platform and build tools
+        run: sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Compile Android 10 UI-only debug APK
+        run: gradle --no-daemon :preview:assembleDebug
+
+      - name: Verify debug APK and offline permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=preview/build/outputs/apk/debug/preview-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee apk_badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | tee apk_permissions.txt
+          grep -F "sdkVersion:'29'" apk_badging.txt
+          if grep -Ei 'android\.permission\.(INTERNET|RECORD_AUDIO)' apk_permissions.txt; then
+            echo 'Offline application permission policy violated'
+            exit 1
+          fi
+          sha256sum "$APK" > preview-debug.apk.sha256
+
+      - name: Upload installable UI-debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: holographic-v093-android10-ui-debug-apk
+          path: |
+            preview/build/outputs/apk/debug/preview-debug.apk
+            preview-debug.apk.sha256
+            apk_badging.txt
+            apk_permissions.txt
+          if-no-files-found: error
+          retention-days: 14
