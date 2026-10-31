@@ -1,0 +1,29 @@
+name: Holographic source smoke tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/source-smoke.test.cjs'
+      - '.github/workflows/source-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  javascript-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check published modules
+        run: |
+          node --check src/tamagotchi.js
+          node --check src/physical.js
+          node --check src/offline-ai.js
+      - name: Test care logic and AI interface
+        run: node tests/source-smoke.test.cjs
