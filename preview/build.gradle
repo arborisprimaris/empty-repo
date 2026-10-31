@@ -1,0 +1,32 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'dev.holographic.apkpreview'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'dev.holographic.apkpreview'
+        minSdk 29
+        targetSdk 35
+        versionCode 93
+        versionName '0.9.3-tamagotchi-care'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+}
+
+// The lightweight Android 10 UI build is default. Native AI requires separate testing.
+if (project.findProperty('withLlama') == 'true') {
+    android.defaultConfig.externalNativeBuild.cmake.arguments '-DANDROID_STL=c++_shared'
+    android.externalNativeBuild.cmake.path file('src/main/cpp/CMakeLists.txt')
+    android.ndkVersion '27.2.12479018'
+    android.defaultConfig.ndk.abiFilters 'arm64-v8a'
+}
